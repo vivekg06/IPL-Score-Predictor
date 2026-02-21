@@ -102,7 +102,7 @@ This will:
 
 ## 🤝 Contributors
 
-- **SUJAL MEENA**
+- **VIVEK GUPTA**
 
 ## 📝 License
 
