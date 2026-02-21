@@ -339,14 +339,15 @@ import scipy.stats as stats
 
 
 # --- Helper Functions ---
-def calculate_win_probability(predicted_score, target_score, runs_std_dev=20):
+def calculate_win_probability(predicted_score, target_score, overs_bowled=0):
     """
     Calculate win probability for the chasing team.
-    Assumes the prediction error follows a normal distribution.
-    runs_std_dev: Standard deviation of the model's prediction errors (approx 20 runs)
+    Uses a dynamic standard deviation that scales with overs remaining.
     """
+    overs_remaining = max(20 - overs_bowled, 0.5)
+    # More overs left = more uncertainty; fewer overs = tighter prediction
+    runs_std_dev = max(8, 30 * (overs_remaining / 20))
     # Probability that the chasing team scores > target
-    # This is 1 - CDF(target) on the distribution N(predicted, std_dev)
     win_prob = 1 - stats.norm.cdf(target_score, loc=predicted_score, scale=runs_std_dev)
     return win_prob
 
@@ -707,11 +708,32 @@ with tab2:
         )
 
         # Predict likely final score if they continue playing normally
-        predicted_final_score = model.predict(input_features, verbose=0)[0][0]
+        model_pred = model.predict(input_features, verbose=0)[0][0]
 
-        # Calculate Win Probability
-        win_prob = calculate_win_probability(predicted_final_score, target_score)
-        win_percentage = int(win_prob * 100)
+        # Situational adjustment: blend model prediction with CRR-based projection
+        overs_remaining = max(20 - overs_t2, 0.5)
+        crr_t2 = runs_t2 / overs_t2 if overs_t2 > 0 else 0
+        crr_projection = runs_t2 + crr_t2 * overs_remaining
+
+        # Wicket pressure: only reduce REMAINING projected runs, not already-scored
+        remaining_runs_proj = max(0, crr_projection - runs_t2)
+        wicket_factor = max(0.5, (10 - wickets_t2) / 10)
+        situational_estimate = runs_t2 + remaining_runs_proj * wicket_factor
+
+        # Model loses relevance deeper into innings (trained on 1st innings)
+        model_weight = (overs_remaining / 20) ** 2  # decays faster: 0.56 at 5ov, 0.12 at 13ov
+        situational_weight = 1 - model_weight
+        predicted_final_score = (
+            model_weight * model_pred
+            + situational_weight * situational_estimate
+        )
+
+        # Ensure prediction is at least current score
+        predicted_final_score = max(predicted_final_score, runs_t2)
+
+        # Calculate Win Probability with dynamic std_dev
+        win_prob = calculate_win_probability(predicted_final_score, target_score, overs_t2)
+        win_percentage = max(1, min(99, round(win_prob * 100)))
 
         # Display Results
         st.markdown(
@@ -786,7 +808,7 @@ st.markdown("---")
 st.markdown(
     """
 <div class="footer">
-    <p>🏏 <strong>IPL Score Predictor Pro</strong> | Built by <strong>SUJAL MEENA</strong></p>
+    <p>🏏 <strong>IPL Score Predictor Pro</strong><strong></strong></p>
     <p style="font-size: 0.8rem; color: #555;">Powered by Advanced AI & Streamlit</p>
     <p style="font-size: 1.2rem; color: white; margin-top: 10px; font-weight: bold;">Note: Enable Dark Mode for the best-looking interface.</p>
 </div>
